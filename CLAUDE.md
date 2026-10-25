@@ -24,7 +24,7 @@ app gives them an account and the lessons.
 - Next.js 16 App Router, `output: "standalone"`, deployed to Google Cloud Run
   (project `shp-ai-bot-2026`, region `us-central1`, service `course-webapp`)
 - Supabase for auth and data (project `ngilonjnqqncxknqvwff`)
-- Email via Gmail SMTP as sales@superhairpieces.com
+- Email via Gmail SMTP, sent from the owner's personal Gmail (`SMTP_USER`)
 
 Full handover document, including current state and open questions:
 Google Drive → Claude Projects → "Evolve Academy — Platform Handover".

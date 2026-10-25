@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  catalogueStoreHash,
+  CATALOGUE_STORE,
   courseProductIdFor,
   courseProductIds,
   unmappedCourseCandidates,
@@ -156,24 +156,11 @@ describe("a course sale we cannot match is reported, not swallowed", () => {
   });
 });
 
-describe("the catalogue store is configuration, not a constant in source", () => {
-  const original = process.env.COURSE_CATALOGUE_STORE;
-  afterEach(() => {
-    if (original === undefined) delete process.env.COURSE_CATALOGUE_STORE;
-    else process.env.COURSE_CATALOGUE_STORE = original;
-  });
-
-  it("defaults to .ca, so nothing needs configuring today", () => {
-    delete process.env.COURSE_CATALOGUE_STORE;
-    expect(catalogueStoreHash()).toBe("gmosz3ja");
-  });
-
-  it("follows the override, so moving the courses does not need a deploy", () => {
-    process.env.COURSE_CATALOGUE_STORE = "cavofu";
-    expect(catalogueStoreHash()).toBe("cavofu");
-    // And the fallback follows it rather than staying pinned to .ca.
-    expect(courseProductIdFor({ product_id: 3827, sku: "SelenaL" }, "gmosz3ja")).toBeNull();
-    expect(courseProductIdFor({ product_id: 7019, sku: "unknown" }, "cavofu")).toBe(7019);
+describe("the catalogue store", () => {
+  it("is .ca, and only .ca product ids are read as courses", () => {
+    expect(CATALOGUE_STORE).toBe("gmosz3ja");
+    expect(courseProductIdFor({ product_id: 3464, sku: "unknown" }, "gmosz3ja")).toBe(3464);
+    expect(courseProductIdFor({ product_id: 7019, sku: "unknown" }, "cavofu")).toBeNull();
   });
 });
 
@@ -197,16 +184,8 @@ describe("unmatched course lines", () => {
 });
 
 describe("the catalogue store hash is compared case-insensitively", () => {
-  const original = process.env.COURSE_CATALOGUE_STORE;
-  afterEach(() => {
-    if (original === undefined) delete process.env.COURSE_CATALOGUE_STORE;
-    else process.env.COURSE_CATALOGUE_STORE = original;
-  });
-
   it("treats a hash typed in capitals as the same store", () => {
-    process.env.COURSE_CATALOGUE_STORE = "GMOSZ3JA";
-    expect(catalogueStoreHash()).toBe("gmosz3ja");
-    expect(courseProductIdFor({ product_id: 3464 }, "gmosz3ja")).toBe(3464);
+    expect(courseProductIdFor({ product_id: 3464 }, "GMOSZ3JA")).toBe(3464);
     expect(unmappedCourseCandidates([{ product_id: 3827, sku: "x" }], "GMOSZ3JA")).toEqual([]);
   });
 });

@@ -61,33 +61,25 @@ const SKU_TO_COURSE_PRODUCT: Record<string, number> = {
   academyextended_in_person: 3986,
 };
 
-// The storefront whose catalogue courses.bigcommerce_product_id refers to.
-// A product id from any other store is a number that happens to be in range.
-//
-// Overridable, because a hash hardcoded in source is a fact about the
-// business pinned in a file nobody looks at: move the courses to another
-// storefront and this is silently wrong, in the direction of granting a
-// course to whoever buys the colliding product. Default kept so nothing
-// needs configuring today.
-export function catalogueStoreHash(): string {
-  return (process.env.COURSE_CATALOGUE_STORE || "gmosz3ja").trim().toLowerCase();
-}
+// The storefront whose catalogue courses.bigcommerce_product_id refers to:
+// .ca. A product id from any other store is a number that happens to be in
+// range. Move the courses to another storefront and this must change with
+// them, or the fallback grants a course to whoever buys the colliding product.
+export const CATALOGUE_STORE = "gmosz3ja";
 
-// BigCommerce hashes are lower-case, but the override is typed by a human
-// and "GMOSZ3JA" meaning something different from "gmosz3ja" is a trap with
-// no upside.
+// BigCommerce hashes are lower-case, but one typed into BIGCOMMERCE_STORES by
+// a human may not be, and "GMOSZ3JA" meaning something different from
+// "gmosz3ja" is a trap with no upside.
 function isCatalogueStore(storeHash?: string) {
-  return (storeHash ?? "").trim().toLowerCase() === catalogueStoreHash();
+  return (storeHash ?? "").trim().toLowerCase() === CATALOGUE_STORE;
 }
 
 // True when the catalogue store is not one of the stores we hold a token
-// for -- which means either the override is wrong or that storefront has
-// dropped out of BIGCOMMERCE_STORES. Either way every order now resolves by
+// for -- which means that storefront has dropped out of BIGCOMMERCE_STORES. Either way every order now resolves by
 // SKU alone, so a course sale on the catalogue store with an unrecognised
 // SKU would be ignored. Worth saying out loud rather than discovering later.
 export function catalogueStoreIsConfigured(): boolean {
-  const wanted = catalogueStoreHash();
-  return Object.keys(storeTokens()).some((hash) => hash.trim().toLowerCase() === wanted);
+  return Object.keys(storeTokens()).some((hash) => isCatalogueStore(hash));
 }
 
 // Products that share an id with one of our courses and are plainly not

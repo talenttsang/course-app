@@ -30,8 +30,11 @@ service (`course-webapp` in `shp-ai-bot-2026`, Variables & Secrets tab).
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key. **Needed at build time.** |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key. Secret. |
 | `BIGCOMMERCE_STORES` | `{"<store hash>":"<API token>", …}`, one per storefront. Read by the Waiting page. Secret. |
-| `COURSE_CATALOGUE_STORE` | Optional. The store whose product ids the `courses` table uses. Defaults to `gmosz3ja`. |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Gmail SMTP for welcome and reset emails. `SMTP_PASS` is secret. |
+| `SMTP_HOST` | `smtp.gmail.com` |
+| `SMTP_PORT` | `587` |
+| `SMTP_USER` | the Gmail address mail is sent from (the owner's personal Gmail) |
+| `SMTP_PASS` | a Google **app password** for that account, not its normal password. Secret. |
+| `SMTP_FROM` | leave unset: mail then goes out as `"Evolve Academy by Superhairpieces" <SMTP_USER>`. Gmail rewrites any other address to `SMTP_USER` anyway. |
 | `ADMIN_EMAILS` | Comma-separated owner addresses. Empty means nobody is staff. |
 | `PUBLIC_ORIGIN` | `https://evolve.superhairpieces.com`. Without it, welcome emails cannot carry a sign-in link and are not sent. |
 | `PORT` | `8080`, to match the Dockerfile. |
@@ -44,7 +47,18 @@ before the first deploy, and redeploy after changing them; a restart is
 not enough.
 
 These are no longer used; do not set them: `BIGCOMMERCE_WEBHOOK_SECRET`,
-`CRON_SECRET`, `WEBHOOK_ORIGIN`, `GOOGLE_CHAT_WEBHOOK`.
+`CRON_SECRET`, `WEBHOOK_ORIGIN`, `GOOGLE_CHAT_WEBHOOK`, `COURSE_CATALOGUE_STORE`.
+
+### Sending from a personal Gmail
+
+1. The Google account needs **2-Step Verification** on
+   (myaccount.google.com → Security).
+2. Create an app password at myaccount.google.com/apppasswords and put the
+   16 characters in `SMTP_PASS`, without spaces.
+3. A personal Gmail sends at most about **500 emails a day**; past that,
+   welcomes fail and show under "Access but not told" on `/admin/waiting`.
+4. Students see that address as the sender, and replies land in its inbox.
+   The emails' "questions?" link still points at support@superhairpieces.com.
 
 ## 3. Domain and Supabase
 

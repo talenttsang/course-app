@@ -4,7 +4,7 @@ import { TopNav } from "../../components";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { listStudents } from "@/lib/students";
 import { smtpConfigured } from "@/lib/email";
-import { storeTokens, catalogueStoreHash, catalogueStoreIsConfigured } from "@/lib/bigcommerce";
+import { storeTokens, CATALOGUE_STORE, catalogueStoreIsConfigured } from "@/lib/bigcommerce";
 import { reconcile, DEFAULT_DAYS, MAX_DAYS, type Reconciliation } from "@/lib/reconcile";
 import { WaitingTable } from "./waiting-table";
 
@@ -225,7 +225,7 @@ function setupProblems(stores: string[]): string[] {
     out.push("No BigCommerce store tokens are set (BIGCOMMERCE_STORES), so no orders can be checked.");
   } else if (!catalogueStoreIsConfigured()) {
     out.push(
-      `COURSE_CATALOGUE_STORE names ${catalogueStoreHash()}, which is not one of the stores we hold a token for, so courses can only be matched by SKU.`
+      `BIGCOMMERCE_STORES has no token for ${CATALOGUE_STORE} (.ca), the store the courses table's product ids come from, so courses can only be matched by SKU.`
     );
   }
   if (!smtpConfigured()) {

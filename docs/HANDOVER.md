@@ -24,7 +24,7 @@ them an account and the lessons.
 | Code | github.com/mannetsang/course-webapp |
 | Hosting | Cloud Run, project `shp-ai-bot-2026`, region `us-central1` |
 | Database and login | Supabase project `ngilonjnqqncxknqvwff` (shp-courses) |
-| Outgoing email | Gmail SMTP as sales@superhairpieces.com |
+| Outgoing email | Gmail SMTP from the owner's personal Gmail (`SMTP_USER`) |
 | Team notifications | none — the admin Waiting page (`/admin/waiting`) |
 | Scheduled jobs | none |
 
