@@ -1,0 +1,36 @@
+{
+  "name": "course-webapp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc --noEmit --pretty false",
+    "typecheck": "tsc --noEmit --pretty false -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test --project=local",
+    "test:e2e:all": "playwright test --project=local",
+    "test:e2e:staging": "node tests/support/run-e2e.mjs staging",
+    "test:e2e:prod": "node tests/support/run-e2e.mjs prod",
+    "test:e2e:live": "node tests/support/run-e2e.mjs prod",
+    "test:e2e:live-admin": "node tests/support/run-e2e.mjs admin"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.5.1",
+    "@supabase/supabase-js": "^2.45.4",
+    "next": "^16.4.3",
+    "nodemailer": "^10.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^22.20.5",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "^18.3.3",
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.12"
+  }
+}

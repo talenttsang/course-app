@@ -1,0 +1,12 @@
+# Cloud Build gets the source, not a working copy. Without this the upload
+# carries node_modules and .next — hundreds of megabytes that the Docker
+# build immediately discards and reinstalls from the lockfile anyway.
+.git
+.gitignore
+node_modules
+.next
+out
+npm-debug.log*
+.env
+.env.*
+.DS_Store

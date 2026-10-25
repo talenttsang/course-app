@@ -1,0 +1,218 @@
+# Cloud Build pipeline: build the image (with the public Supabase values
+# baked in), push it to Artifact Registry, deploy to Cloud Run.
+#
+# Set these substitution variables on the Cloud Build trigger (they are
+# public-facing values, not secrets):
+#   _NEXT_PUBLIC_SUPABASE_URL       e.g. https://xxxx.supabase.co
+#   _NEXT_PUBLIC_SUPABASE_ANON_KEY  the anon/public key
+#   _REGION                         e.g. us-central1
+#   _SERVICE                        Cloud Run service name
+#
+# Secrets (SUPABASE_SERVICE_ROLE_KEY, BIGCOMMERCE_STORE_HASH,
+# BIGCOMMERCE_ACCESS_TOKEN) are configured once on the Cloud Run service
+# itself (Variables & Secrets tab) and persist across deploys — they are
+# deliberately NOT in this file.
+
+substitutions:
+  _REGION: us-central1
+  _SERVICE: course-webapp
+
+steps:
+  # --- Has a later push already overtaken this commit? ----------------------
+  #
+  # Asked up front purely to save work. A superseded build used to run the
+  # checks, the image build and the push -- about three and a half minutes --
+  # before the guard at the end told it not to deploy.
+  #
+  # Cloud Build has no way to end a build early and still call it successful,
+  # so this leaves a marker and every later step steps aside when it sees one.
+  #
+  # This check fails OPEN: if it cannot get an answer it says so and lets the
+  # build continue. That is the opposite of every other check here and it is
+  # deliberate -- it decides nothing, it only skips work. The guard before the
+  # deploy is the one that decides, and that one fails closed.
+  #
+  # One consequence worth knowing: once this fires, the build is over. If the
+  # later build then fails, nothing deploys and production stays where it is.
+  # Deploying a commit that has already been superseded would be the worse
+  # answer, and the failed build is red where anyone can see it.
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: overtaken
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+
+        # Only this step may create the marker. One that is already here came
+        # from the checkout or from something that ran before Cloud Build did,
+        # and trusting it would skip the whole build on a file anyone can commit.
+        if [ -e /workspace/.superseded ] || [ -L /workspace/.superseded ]; then
+          echo "Something was already at /workspace/.superseded before anything"
+          echo "decided anything. Only this step may put a marker there, so it"
+          echo "came from the checkout and is being removed."
+        fi
+        # Unconditional, and -rf: a dangling symlink is invisible to -e, and a
+        # directory defeats rm -f. Either one surviving here is how a marker
+        # the pipeline never wrote reaches the steps that read it.
+        rm -rf /workspace/.superseded
+
+        if later=$$(bash scripts/later-build.sh "${BUILD_ID}"); then
+          if [ -n "$$later" ]; then
+            echo "A later push ($$later) has already started its own build."
+            echo "Skipping the rest of this build; that one deploys the newer commit."
+            : > /workspace/.superseded
+          else
+            echo "Nothing later has started. Continuing."
+          fi
+        else
+          echo "Could not tell whether a later build exists. Continuing anyway:"
+          echo "this check only saves work, and the guard before the deploy decides."
+        fi
+
+  # --- The gate ------------------------------------------------------------
+  #
+  # These run before anything is built or pushed, so a commit that fails them
+  # never reaches students. They are the same checks .github/workflows/ci.yml
+  # runs; add one there and add it here too, or the gate stops matching CI.
+  #
+  # The GitHub Actions run itself cannot gate this pipeline. Cloud Build starts
+  # on the same push, about four seconds before the check appears, and waiting
+  # on GitHub's answer means asking GitHub -- which needs a credential, which
+  # is how the deploy guard shipped broken. Running the checks here instead
+  # gates on the checks themselves rather than on a report about them, and
+  # removes the race rather than timing it.
+  #
+  # Each check is its own step so the failure is identifiable without logs:
+  # these builds keep none, and a step's status is the only signal that
+  # survives. install/typecheck/test fail differently and should look it.
+  - name: node:22.23.4-alpine
+    id: install
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        if sh scripts/overtaken.sh; then echo "Overtaken; skipping."; exit 0; fi
+        npm ci
+
+  - name: node:22.23.4-alpine
+    id: audit
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        if sh scripts/overtaken.sh; then echo "Overtaken; skipping."; exit 0; fi
+        # Blocks on high and critical only. Everything is listed either way, so
+        # a moderate is visible without standing between a fix and production.
+        # Next 14.2.35 shipped three critical RCEs in the image optimiser; that
+        # is the class this is here to stop, and it would have stopped them.
+        npm audit --audit-level=high
+
+  - name: node:22.23.4-alpine
+    id: typecheck
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        if sh scripts/overtaken.sh; then echo "Overtaken; skipping."; exit 0; fi
+        npx tsc --noEmit
+
+  - name: node:22.23.4-alpine
+    id: test
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        if sh scripts/overtaken.sh; then echo "Overtaken; skipping."; exit 0; fi
+        if node -e "process.exit(require('./package.json').scripts && require('./package.json').scripts.test ? 0 : 1)"; then
+          npm test
+        else
+          echo "No test script in package.json, so there is nothing to run."
+          echo "This step is a placeholder until the suite in PR #1 lands."
+          echo "A pass here is not evidence that anything was tested."
+        fi
+
+  # --- Build, push, deploy -------------------------------------------------
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        if sh scripts/overtaken.sh; then echo "Overtaken; skipping."; exit 0; fi
+        docker build \
+          --build-arg=NEXT_PUBLIC_SUPABASE_URL=${_NEXT_PUBLIC_SUPABASE_URL} \
+          --build-arg=NEXT_PUBLIC_SUPABASE_ANON_KEY=${_NEXT_PUBLIC_SUPABASE_ANON_KEY} \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${_SERVICE}:${COMMIT_SHA} \
+          .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        if sh scripts/overtaken.sh; then echo "Overtaken; skipping."; exit 0; fi
+        docker push ${_REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${_SERVICE}:${COMMIT_SHA}
+
+  # Deploy, unless a later push has overtaken this commit. This is the guard
+  # that decides, and every path that cannot get an answer stops the build
+  # rather than deploying unguarded. A guard whose failure mode is invisible
+  # is not a guard, and these builds keep no readable step logs -- so a green
+  # build that created a revision is itself the proof that this ran.
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+
+        # Ask first, then look at the marker. The marker is a note from an
+        # earlier step saying work was skipped; it is not evidence, and a file
+        # in the workspace must never be able to decide a deploy on its own.
+        if ! later=$$(bash scripts/later-build.sh "${BUILD_ID}"); then
+          echo "Stopping: the guard cannot tell whether a later push has overtaken"
+          echo "this commit, so it will not deploy blind. The image is already in"
+          echo "Artifact Registry; re-run this build once the API answers again."
+          exit 1
+        fi
+
+        if sh scripts/overtaken.sh; then
+          if [ -z "$$later" ]; then
+            echo "Stopping: a marker says this build was overtaken, but no later"
+            echo "build exists now. Either the marker did not come from this"
+            echo "pipeline, or the build that overtook this one has since failed."
+            echo "Nothing was built here, so nothing can deploy either way, and a"
+            echo "green build would hide that."
+            exit 1
+          fi
+          echo "Overtaken by $$later before this build started, so nothing was"
+          echo "built here. That build deploys."
+          exit 0
+        fi
+
+        if [ -n "$$later" ]; then
+          echo "Skipping: a later push ($$later) started its own build after this one."
+          echo "That build deploys the newer commit; deploying this one would move"
+          echo "production backwards."
+          exit 0
+        fi
+
+        echo "Guard: no later build has started. Deploying ${COMMIT_SHA}."
+
+        gcloud run deploy ${_SERVICE} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${_SERVICE}:${COMMIT_SHA} \
+          --region=${_REGION} \
+          --allow-unauthenticated
+
+# No `images:` block. It would push the image again after the last step, which
+# fails a build that skipped the image build, and the push step above already
+# does the job. The cost is that build.results no longer carries the digest;
+# Artifact Registry still has it against the commit tag.
+
+# Builds run as a named service account rather than the legacy Cloud Build
+# one. That combination has no default logs bucket, and Cloud Build refuses
+# to start at all unless it is told where logs go.
+options:
+  logging: CLOUD_LOGGING_ONLY

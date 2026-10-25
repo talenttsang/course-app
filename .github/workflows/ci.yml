@@ -1,0 +1,64 @@
+# Pull request checks, plus a report on main. This workflow never publishes a
+# revision, and tests/unit/harness.test.ts enforces that by refusing any
+# mention of the deploy tooling here -- which is why this note does not name
+# the file it is talking about.
+#
+# The gate that can actually stop a release is the deploy pipeline config at
+# the repository root. It runs these same checks as its first steps, so a
+# check added here has to be added there too or the two drift apart.
+#
+# The deploy starts on the same push a few seconds before this check appears,
+# so waiting on this run's verdict would mean asking GitHub for it, and that
+# needs a credential. Running the checks in the pipeline removes the race
+# instead of timing it.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      E2E_ALLOW_PROD: "0"
+      E2E_ALLOW_LIVE_ADMIN: "0"
+      E2E_BASE_URL: ""
+      E2E_ADMIN_EMAIL: ""
+      E2E_ADMIN_PASSWORD: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.4"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Audit dependencies
+        # Same threshold as the deploy pipeline's own gate: high and
+        # critical block, lower severities are reported and do not.
+        run: npm audit --audit-level=high
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Typecheck tests
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Browsers for the end-to-end run
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end (local stack)
+        run: npm run test:e2e

@@ -1,0 +1,80 @@
+# Forwards issue activity to the dupy webhook.
+#
+# Titles and bodies are taken from the event file with jq. They are never
+# interpolated into the shell: anyone who can open an issue can set them.
+#
+# Comments on pull requests are delivered as well. is_pull_request is true
+# for those so the receiver can tell them apart from issue comments.
+#
+# A comment body (issue_comment) or issue body (issues) that contains the
+# marker <!-- dupy --> skips this job. Anything the receiver writes back to
+# GitHub should include that marker so the delivery does not bounce.
+
+name: Dupy bridge
+
+on:
+  issues:
+    types: [opened, edited, reopened, closed, labeled]
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  forward:
+    name: Forward issue activity
+    if: "${{ (github.event_name == 'issue_comment' && !contains(github.event.comment.body || '', '<!-- dupy -->')) || (github.event_name == 'issues' && !contains(github.event.issue.body || '', '<!-- dupy -->')) }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Deliver event to webhook
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          WEBHOOK_URL: ${{ secrets.DUPY_WEBHOOK_URL }}
+          WEBHOOK_KEY: ${{ secrets.DUPY_WEBHOOK_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${WEBHOOK_URL}" ]; then
+            echo "::notice::DUPY_WEBHOOK_URL is empty; skipping webhook delivery until the secret is set."
+            exit 0
+          fi
+
+          payload="$(mktemp)"
+          trap 'rm -f "$payload"' EXIT
+
+          # Untrusted fields (title, body, urls, authors) are read from the
+          # event file. jq encodes them as JSON data, so a title cannot break
+          # out of the payload or into the shell.
+          jq -c \
+            --arg event_name "$EVENT_NAME" \
+            --arg repo "$REPO" \
+            --arg actor "$ACTOR" \
+            '
+            ($event_name == "issue_comment") as $is_comment
+            | (if $is_comment then .comment.body else .issue.body end) as $body
+            | {
+                source: "github",
+                event: $event_name,
+                action: .action,
+                repo: $repo,
+                issue_number: .issue.number,
+                issue_title: .issue.title,
+                issue_url: .issue.html_url,
+                issue_state: .issue.state,
+                is_pull_request: (.issue.pull_request != null),
+                actor: $actor,
+                comment_id: (if $is_comment then .comment.id else null end),
+                comment_url: (if $is_comment then .comment.html_url else null end),
+                comment_author: (if $is_comment then .comment.user.login else null end),
+                body: (if $body == null then null else $body[0:6000] end)
+              }
+            ' "$GITHUB_EVENT_PATH" > "$payload"
+
+          curl -fsS --retry 3 --connect-timeout 10 --max-time 20 \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${WEBHOOK_KEY}" \
+            --data-binary @"$payload" \
+            "$WEBHOOK_URL"

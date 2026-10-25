@@ -1,0 +1,96 @@
+# Wakes Claude when an issue is opened, or commented on.
+#
+# Claude can subscribe to pull request events in real time; GitHub offers no
+# equivalent for issues, and the scheduled fallback only runs hourly. So this
+# posts a comment on the long-lived relay pull request, which Claude is
+# subscribed to, and that comment is the wake-up. Claude then reads the real
+# issue — the comment is a doorbell, not the message.
+#
+# Comments were missed originally: the trigger listened only for opened and
+# reopened issues, so every reply on an existing thread went unseen and the
+# sender had to open a new issue to get through. Half a conversation is worse
+# than none, because both sides believe it is working.
+#
+# If the relay pull request is ever merged or closed, this step fails loudly
+# rather than passing quietly, because a relay that has silently stopped is
+# worse than no relay at all.
+
+name: Issue relay
+
+on:
+  issues:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write          # the relay PR is an issue as far as the API is concerned
+  pull-requests: write
+
+concurrency:
+  group: issue-relay
+  cancel-in-progress: false
+
+env:
+  RELAY_PR: "2"
+
+jobs:
+  notify:
+    # Three things must not wake Claude:
+    #   - comments on the relay pull request, where this workflow writes
+    #   - bot comments, for the same reason
+    #   - Claude's own replies, which carry the <!-- claude --> marker
+    #
+    # The marker rather than the author, because Claude comments through a
+    # token belonging to the repository owner — filtering by author would
+    # silently drop the owner's own messages, which are the ones that matter
+    # most.
+    if: >-
+      github.event_name == 'issues' ||
+      (github.event.issue.number != 2 &&
+       github.event.comment.user.type != 'Bot' &&
+       !contains(github.event.comment.body, '<!-- claude -->'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on the relay pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          NUM: ${{ github.event.issue.number }}
+          TITLE: ${{ github.event.issue.title }}
+          URL: ${{ github.event.comment.html_url || github.event.issue.html_url }}
+          WHO: ${{ github.event.comment.user.login || github.event.issue.user.login }}
+          ACTION: ${{ github.event_name == 'issue_comment' && 'commented on' || github.event.action }}
+        run: |
+          set -euo pipefail
+
+          state=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+                       -H "Accept: application/vnd.github+json" \
+                       "https://api.github.com/repos/$REPO/pulls/$RELAY_PR" \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state",""))')
+          if [ "$state" != "open" ]; then
+            echo "Relay PR #$RELAY_PR is '$state', not open — the relay is broken."
+            echo "Reopen it, or point RELAY_PR at a new one." >&2
+            exit 1
+          fi
+
+          # The title is passed through jq as data, never interpolated into a
+          # shell string or a JSON literal: issue titles are written by anyone
+          # who can open an issue.
+          python3 - <<'PY' > body.json
+          import json, os
+          print(json.dumps({"body":
+            f"**Issue #{os.environ['NUM']} {os.environ['ACTION']}** by @{os.environ['WHO']}\n\n"
+            f"{os.environ['TITLE']}\n\n"
+            f"{os.environ['URL']}\n\n"
+            "_Relay only — read the issue itself; this comment is just the wake-up._"}))
+          PY
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            --data @body.json \
+            "https://api.github.com/repos/$REPO/issues/$RELAY_PR/comments" > /dev/null
+
+          echo "Relayed issue #$NUM to PR #$RELAY_PR"
