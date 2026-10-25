@@ -21,7 +21,7 @@ The online course platform for Superhairpieces' hair replacement training
 app gives them an account and the lessons.
 
 - Live: https://evolve.superhairpieces.com
-- Next.js 14 App Router, `output: "standalone"`, deployed to Google Cloud Run
+- Next.js 16 App Router, `output: "standalone"`, deployed to Google Cloud Run
   (project `shp-ai-bot-2026`, region `us-central1`, service `course-webapp`)
 - Supabase for auth and data (project `ngilonjnqqncxknqvwff`)
 - Email via Gmail SMTP as sales@superhairpieces.com
@@ -33,25 +33,31 @@ Google Drive → Claude Projects → "Evolve Academy — Platform Handover".
 
 | Path | What lives there |
 |---|---|
-| `app/api/webhooks/bigcommerce/` | the automatic onboarding path — a paid order becomes an account |
-| `app/api/admin/onboard/` | the same thing over HTTP, for orders no webhook will ever see |
+| `app/admin/waiting/` | where sales are onboarded: lists paid buyers with no access, one click each |
+| `lib/reconcile.ts` | the scan behind it — paid course orders against granted access |
+| `lib/order-onboarding.ts` | one order → account, course and welcome email |
+| `app/api/admin/onboard/` | onboarding by email over HTTP, for sales with no readable order |
 | `app/admin/` | staff area: courses, lessons, students, staff |
-| `lib/bigcommerce.ts` | multi-store credentials, SKU→course map, webhook secret |
+| `lib/bigcommerce.ts` | multi-store credentials, SKU→course map, paid statuses |
 | `lib/i18n.ts` | which course is taught in which language, and all email copy |
 | `lib/email.ts` | the welcome and password-reset emails |
-| `lib/onboarding.ts` | shared by both onboarding paths so they can't drift |
-| `lib/notify.ts` | Google Chat alerts |
+| `lib/onboarding.ts` | the welcome email every onboarding path ends in |
 | `lib/admin.ts` | who is staff; both layers fail closed |
 
 ---
 
 ## Things that will bite you
 
+**Nothing onboards a sale by itself.** There is no BigCommerce webhook,
+no scheduled job and no team chat. A buyer has access only once staff press
+Onboard on `/admin/waiting`, and that page is also where setup problems and
+failed welcome emails show. Don't add an automatic path back without asking.
+
 **Product IDs are per-store; SKUs are not.** The Spanish certificate is
 product 3827 on one storefront and 3848 on another. Match courses by SKU.
 Adding a course, or selling an existing one on a new storefront, means
 updating the map in `lib/bigcommerce.ts` — miss it and buyers of that course
-are silently never onboarded.
+never appear as waiting, only under "Could not match".
 
 **`NEXT_PUBLIC_*` values are inlined at build time**, not read at runtime.
 They come from Cloud Build trigger substitutions. If they are empty the build

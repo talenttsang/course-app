@@ -4,16 +4,14 @@ import { emailOriginOrReason } from "@/lib/origin";
 import { isAdmin } from "@/lib/admin";
 import { sendCourseWelcome } from "@/lib/onboarding";
 import { localeForProduct, type WelcomeKind } from "@/lib/i18n";
-import { notifyOnboarded, notifyOnboardFailed } from "@/lib/notify";
 import { rememberStudentName } from "@/lib/students";
 
-// Onboarding for a purchase the webhook will never see.
+// Onboarding by email and product, without a BigCommerce order to read.
 //
-// We sell the same courses across several storefronts, and a store whose API
-// token we don't hold yet can't fire /api/webhooks/bigcommerce — the webhook
-// fetches the order to learn who bought what, and that call needs the token
-// for the store the order lives in. Until it exists, those buyers have paid
-// and are waiting, and the only way to onboard them is by hand.
+// We sell the same courses across several storefronts, and an order on a
+// store whose API token we don't hold can't be read from the admin Waiting
+// page — reading it needs the token for the store it lives in. Those buyers,
+// and anyone migrated from elsewhere, are onboarded by email instead.
 //
 // The admin UI can do it one at a time. This does the same thing over HTTP,
 // so a batch of them can be worked through from a script or another system
@@ -45,10 +43,6 @@ export async function POST(req: NextRequest) {
     kind?: WelcomeKind;
     // The buyer's name as the store has it, so support can find them by it.
     name?: string;
-    // A bulk migration would otherwise post one chat message per student and
-    // bury the channel, so callers working through a list turn it off and
-    // post a single summary instead.
-    announce?: boolean;
     // Send the welcome again to someone who already holds the course. The
     // normal guard exists so a rerun of a batch cannot spam buyers, but a
     // student who lost their link — or was granted access without ever being
@@ -169,10 +163,6 @@ export async function POST(req: NextRequest) {
     { onConflict: "user_id,course_id" }
   );
   if (grantError) {
-    await notifyOnboardFailed({
-      email,
-      reason: `could not grant access: ${grantError.message}`,
-    });
     return NextResponse.json(
       { error: `could not grant access: ${grantError.message}` },
       { status: 500 }
@@ -198,17 +188,6 @@ export async function POST(req: NextRequest) {
         userId,
       })
     : { sent: false as const, reason: where.reason };
-
-  if (body.announce !== false) {
-    await notifyOnboarded({
-      email,
-      courseTitles: [course.title],
-      source: "admin-api",
-      newAccount: created,
-      emailed: mail.sent,
-      emailError: mail.reason,
-    });
-  }
 
   return NextResponse.json({
     ok: true,

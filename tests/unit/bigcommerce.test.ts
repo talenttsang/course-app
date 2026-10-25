@@ -1,15 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  candidateKey,
   catalogueStoreHash,
   courseProductIdFor,
   courseProductIds,
   unmappedCourseCandidates,
   isPaidStatus,
-  storeHashFromProducer,
   storeTokens,
   tokenForStore,
-  webhookSecretOk,
 } from "@/lib/bigcommerce";
 
 const ORIGINAL = { ...process.env };
@@ -40,20 +37,6 @@ describe("store credentials", () => {
     process.env.BIGCOMMERCE_ACCESS_TOKEN = "legacy-token";
     process.env.BIGCOMMERCE_STORES = "not-json";
     expect(storeTokens()).toEqual({ legacy: "legacy-token" });
-  });
-});
-
-describe("storeHashFromProducer", () => {
-  it("accepts the stores/<hash> stamp BigCommerce sends", () => {
-    expect(storeHashFromProducer("stores/gmosz3ja")).toBe("gmosz3ja");
-  });
-
-  it("rejects anything else rather than guessing a store", () => {
-    expect(storeHashFromProducer("stores/")).toBeNull();
-    expect(storeHashFromProducer("stores/abc/extra")).toBeNull();
-    expect(storeHashFromProducer("https://example.com")).toBeNull();
-    expect(storeHashFromProducer(12)).toBeNull();
-    expect(storeHashFromProducer(null)).toBeNull();
   });
 });
 
@@ -101,17 +84,6 @@ describe("paid order statuses", () => {
     expect(isPaidStatus("10")).toBe(false);
     expect(isPaidStatus(null)).toBe(false);
     expect(isPaidStatus(undefined)).toBe(false);
-  });
-});
-
-describe("webhook secret", () => {
-  it("accepts only an exact match when a secret is configured", () => {
-    process.env.BIGCOMMERCE_WEBHOOK_SECRET = "correct-horse";
-    expect(webhookSecretOk("correct-horse")).toBe(true);
-    expect(webhookSecretOk("correct-horsE")).toBe(false);
-    expect(webhookSecretOk("correct-horse-extra")).toBe(false);
-    expect(webhookSecretOk("")).toBe(false);
-    expect(webhookSecretOk(null)).toBe(false);
   });
 });
 
@@ -205,26 +177,7 @@ describe("the catalogue store is configuration, not a constant in source", () =>
   });
 });
 
-describe("the alert for an unmatched course does not drown itself", () => {
-  // The bug this guards: keyed by store alone, an .es wig selling every few
-  // minutes holds the window open, and a renamed course inside that window
-  // is never announced. Same shape as one bad mailbox muting a mail outage.
-  it("gives two different products two different throttle keys", () => {
-    const wig = { product_id: 3827, sku: "SelenaL" };
-    const renamed = { product_id: 7020, sku: "academyExtended_v2" };
-    expect(candidateKey("qet21urb3p", wig)).not.toBe(candidateKey("qet21urb3p", renamed));
-  });
-
-  it("gives the same product the same key across orders, so it is throttled", () => {
-    expect(candidateKey("cavofu", { product_id: 7020, sku: "academyExtended_v2" })).toBe(
-      candidateKey("cavofu", { product_id: 7020, sku: "ACADEMYEXTENDED_V2" })
-    );
-  });
-
-  it("falls back to the id when a line has no SKU at all", () => {
-    expect(candidateKey("cavofu", { product_id: 3463 })).toBe("cavofu:id-3463");
-  });
-
+describe("unmatched course lines", () => {
   // Standing noise is how a real alert gets missed, so the two .es products
   // known to share an id with a course are not reported at all.
   it("stays quiet on a collision we already know about", () => {

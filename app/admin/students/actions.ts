@@ -6,7 +6,6 @@ import { emailOriginOrReason } from "@/lib/origin";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { currentAdmin } from "@/lib/admin";
 import { sendCourseWelcome, SIGN_IN_LINK_HOURS } from "@/lib/onboarding";
-import { notifyOnboarded } from "@/lib/notify";
 import { rememberStudentName } from "@/lib/students";
 import { localeForCourses } from "@/lib/i18n";
 
@@ -58,10 +57,10 @@ export async function revokeCourse(input: { userId: string; courseId: string }):
 }
 
 // For sales taken outside the store — over the phone, in a salon, on a
-// storefront whose API token we don't hold, or a comped place — where no
-// BigCommerce order will ever fire the webhook.
+// storefront whose API token we don't hold, or a comped place — where there
+// is no BigCommerce order to onboard from the Waiting page.
 //
-// Sends the same welcome email the webhook does, unless the caller opts out
+// Sends the same welcome email order onboarding does, unless the caller opts out
 // because they intend to write to the student themselves. Granting access
 // silently is the one way to get this wrong: the buyer has paid, and has no
 // way of discovering a course nobody told them about.
@@ -120,16 +119,6 @@ export async function createStudent(input: {
   // Access is granted either way; the email is a best-effort extra, so a
   // mail failure is reported alongside the success rather than replacing it.
   if (input.notify === false || titles.length === 0) {
-    if (titles.length > 0) {
-      await notifyOnboarded({
-        email,
-        courseTitles: titles,
-        source: "admin-ui",
-        newAccount: !error,
-        emailed: false,
-        emailError: "staff chose not to email",
-      });
-    }
     return { ok: true, userId, emailed: false };
   }
   const where = await originFromHeaders();
@@ -141,14 +130,6 @@ export async function createStudent(input: {
         userId,
       })
     : { sent: false as const, reason: where.reason };
-  await notifyOnboarded({
-    email,
-    courseTitles: titles,
-    source: "admin-ui",
-    newAccount: !error,
-    emailed: mail.sent,
-    emailError: mail.reason,
-  });
 
   return { ok: true, userId, emailed: mail.sent, emailError: mail.reason };
 }

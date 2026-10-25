@@ -1,4 +1,3 @@
-import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import {
   storeTokens,
@@ -6,41 +5,51 @@ import {
   unmappedCourseCandidates,
   isPaidStatus,
 } from "@/lib/bigcommerce";
-import {
-  notifyReconciliation,
-  notifyWatchdogFailed,
-} from "@/lib/notify";
-import { requireSharedSecret } from "@/lib/require-secret";
 
 // Finds course buyers who paid but never got access.
 //
-// The watchdog catches a webhook that is switched off, but only after
-// BigCommerce has already spent 48 hours failing to deliver — and turning it
-// back on replays nothing. Anything lost in that window is invisible unless
-// somebody compares paid orders against granted access. This is that
-// comparison, run on a schedule instead of after a complaint.
-//
-// It REPORTS rather than onboards. Emailing customers straight from a cron
-// job means one wrong SKU mapping or one bad status assumption sends real
-// mail to real people with nobody in the loop. The list is small by nature —
-// it should usually be empty — so a human confirming it costs little and
-// bounds the damage of a mistake.
-//
-// It posts even when it finds nothing. A job that only speaks up on bad news
-// is indistinguishable from a job that has died, which is precisely the
-// failure this exists to catch.
+// With no order webhook, every sale lands here first: staff open the admin
+// "Waiting" page, which runs this, and onboard each buyer it lists. It only
+// reads. Emailing customers straight from a scan means one wrong SKU mapping
+// or one bad status assumption sends real mail to real people with nobody in
+// the loop, so a human confirms every row.
 
-export const dynamic = "force-dynamic";
-export const maxDuration = 900;
-
-const DEFAULT_DAYS = 10; // weekly run, with overlap so nothing falls between
+export const DEFAULT_DAYS = 10;
+export const MAX_DAYS = 60;
 
 // Every paid order costs one request for its line items, and the .com store
-// alone books thousands in a ten-day window. Sequentially that overruns any
-// request timeout we can set, so the line-item fetches run in a small pool.
-// Kept modest on purpose: BigCommerce rate-limits per store, and a
-// reconciliation that trips the limit reports nothing at all.
+// alone books thousands in a ten-day window. Sequentially that is minutes of
+// waiting, so the line-item fetches run in a small pool. Kept modest on
+// purpose: BigCommerce rate-limits per store, and a scan that trips the limit
+// reports nothing at all.
 const CONCURRENCY = 8;
+
+export type MissingBuyer = {
+  store: string;
+  order: number;
+  date: string;
+  email: string;
+  name: string;
+  productId: number;
+};
+
+export type UnmatchedLine = {
+  store: string;
+  order: number;
+  productId?: number;
+  sku?: string;
+  name?: string;
+};
+
+export type Reconciliation = {
+  days: number;
+  ordersScanned: number;
+  courseOrders: number;
+  missing: MissingBuyer[];
+  unmatched: UnmatchedLine[];
+  storeErrors: string[];
+  storesChecked: string[];
+};
 
 async function bcFetch(url: string, headers: Record<string, string>) {
   for (let attempt = 0; ; attempt++) {
@@ -63,27 +72,23 @@ async function pooled<T>(items: T[], limit: number, work: (item: T) => Promise<v
   await Promise.all(runners);
 }
 
-export async function GET(req: NextRequest) {
-  const refused = await requireSharedSecret({
-    variable: "CRON_SECRET",
-    header: "x-evolve-cron-secret",
-    got: req.headers.get("x-evolve-cron-secret"),
-    endpoint: "the weekly reconciliation, which returns customers' names and email addresses",
-  });
-  if (refused) return refused;
-
-  const days = Number(req.nextUrl.searchParams.get("days")) || DEFAULT_DAYS;
+export async function reconcile(opts: { days?: number; store?: string | null } = {}): Promise<Reconciliation> {
+  const days = Math.min(Math.max(Math.floor(opts.days || DEFAULT_DAYS), 1), MAX_DAYS);
   const since = new Date(Date.now() - days * 86400_000).toISOString();
-  // One store at a time is available for a manual run, so a store that is
-  // slow or erroring can be looked at without waiting for the other two.
-  const onlyStore = req.nextUrl.searchParams.get("store");
   const admin = supabaseAdmin();
 
-  // What the platform believes, keyed by email.
-  const { data: userPage } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  // What the platform believes, keyed by email. Every page: a buyer whose
+  // account sits past the first page would otherwise be reported as missing
+  // a course they already have.
   const userIdByEmail = new Map<string, string>();
-  for (const u of userPage?.users ?? []) {
-    if (u.email) userIdByEmail.set(u.email.toLowerCase(), u.id);
+  const perPage = 1000;
+  for (let page = 1; page <= 50; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) throw new Error(`could not list users: ${error.message}`);
+    for (const u of data?.users ?? []) {
+      if (u.email) userIdByEmail.set(u.email.toLowerCase(), u.id);
+    }
+    if ((data?.users ?? []).length < perPage) break;
   }
 
   const { data: purchases } = await admin
@@ -108,31 +113,17 @@ export async function GET(req: NextRequest) {
     (courseRows ?? []).map((c) => (c as { bigcommerce_product_id: number }).bigcommerce_product_id)
   );
 
-  const missing: {
-    store: string;
-    order: number;
-    date: string;
-    email: string;
-    name: string;
-    productId: number;
-  }[] = [];
-
-  // Lines that looked like a course but could not be matched. Reported in
-  // the summary rather than alerted on: it posts whether or not anything is
-  // wrong, so nothing here can be lost to a throttle.
-  const unmatchedLines: {
-    store: string;
-    order: number;
-    productId?: number;
-    sku?: string;
-    name?: string;
-  }[] = [];
+  const missing: MissingBuyer[] = [];
+  // Lines that looked like a course but could not be matched. Each is either
+  // an ordinary product sharing an id with a course, or a course whose SKU has
+  // changed — in which case that buyer has no access and is not in `missing`.
+  const unmatched: UnmatchedLine[] = [];
   let ordersScanned = 0;
   let courseOrders = 0;
   const storeErrors: string[] = [];
 
   const stores = Object.entries(storeTokens()).filter(
-    ([hash]) => !onlyStore || hash === onlyStore
+    ([hash]) => !opts.store || hash === opts.store
   );
 
   for (const [storeHash, token] of stores) {
@@ -163,14 +154,8 @@ export async function GET(req: NextRequest) {
           const billing = (order.billing_address ?? {}) as Record<string, string>;
           const email = (billing.email ?? "").toLowerCase();
 
-          // Same blind spot as the webhook: a course sold under a SKU we do
-          // not know is skipped rather than mis-matched, and silence is how a
-          // waiting buyer stays invisible. Collected rather than alerted on,
-          // because the summary below is posted unconditionally and can carry
-          // every one of them — a throttle inside a ten-day scan would show
-          // the first and drop the rest.
           for (const line of unmappedCourseCandidates(lines ?? [], storeHash)) {
-            unmatchedLines.push({
+            unmatched.push({
               store: storeHash,
               order: order.id as number,
               productId: line.product_id,
@@ -205,27 +190,20 @@ export async function GET(req: NextRequest) {
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       storeErrors.push(`${storeHash}: ${reason}`);
-      await notifyWatchdogFailed({ storeHash, reason: `reconciliation failed — ${reason}` });
     }
   }
 
-  await notifyReconciliation({
+  // Newest first. BigCommerce dates are RFC 2822 ("Tue, 20 Oct 2026 …"), so
+  // they sort as dates, not strings.
+  missing.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+
+  return {
     days,
     ordersScanned,
     courseOrders,
     missing,
-    unmatched: unmatchedLines,
+    unmatched,
     storeErrors,
     storesChecked: stores.map(([hash]) => hash),
-  });
-
-  return NextResponse.json({
-    ok: true,
-    days,
-    ordersScanned,
-    courseOrders,
-    missingCount: missing.length,
-    missing,
-    storeErrors,
-  });
+  };
 }

@@ -3,8 +3,8 @@
 // Every sign-in link we email is built from an origin, and until now that
 // origin came from the request that happened to trigger the send. That is
 // fine while there is exactly one way in, and wrong the moment there are
-// two: an order webhook delivered to the service's run.app URL would email
-// a student a run.app sign-in link, which works but looks like a phishing
+// two: staff onboarding a buyer from the service's own *.onrender.com or
+// run.app URL would email the student a sign-in link on that host, which works but looks like a phishing
 // attempt and stops looking like us.
 //
 // PUBLIC_ORIGIN pins it. Set it to the customer-facing address and every
@@ -66,8 +66,8 @@ export function emailOrigin(h: { get(name: string): string | null }): string {
 // Access is the valuable part and it should stand; the email is the part that
 // degrades.
 //
-// Reports the misconfiguration once, so it surfaces even though the request
-// goes on to answer success.
+// Logs the misconfiguration, and the caller reports "not emailed", so it
+// surfaces even though the request goes on to answer success.
 export async function emailOriginOrReason(
   h: { get(name: string): string | null },
   endpoint: string
@@ -76,11 +76,9 @@ export async function emailOriginOrReason(
     return { origin: emailOrigin(h) };
   } catch (err) {
     if (err instanceof MissingPublicOrigin) {
-      const { notifyConfigProblem } = await import("@/lib/notify");
-      await notifyConfigProblem({
-        what: "PUBLIC_ORIGIN",
-        detail: `${endpoint} could not build a sign-in link, so nobody was emailed`,
-      });
+      console.error(
+        `[origin] PUBLIC_ORIGIN is not set: ${endpoint} could not build a sign-in link, so nobody was emailed`
+      );
       return { reason: "PUBLIC_ORIGIN is not set, so no sign-in link could be built" };
     }
     throw err;
@@ -103,21 +101,4 @@ export function originFrom(h: {
   get(name: string): string | null;
 }): string {
   return configured() ?? fromHeaders(h.get("x-forwarded-host") ?? h.get("host"), h.get("x-forwarded-proto"));
-}
-
-// Where BigCommerce should deliver order events.
-//
-// The watchdog repairs a webhook towards this, and it must not be inferred
-// from whichever request triggered the check: during a move between
-// projects two schedulers reach the same code on two different hostnames,
-// and each would "repair" the hooks away from the other every fifteen
-// minutes. Deriving it from a header also means anyone holding the cron
-// secret could repoint live webhooks by spoofing x-forwarded-host.
-//
-// Falls back to PUBLIC_ORIGIN, then to the calling host, so unset it
-// behaves exactly as before.
-export function webhookOrigin(h: { get(name: string): string | null }): string {
-  const raw = (process.env.WEBHOOK_ORIGIN ?? "").trim();
-  if (raw) return raw.replace(/\/+$/, "");
-  return originFrom(h);
 }

@@ -48,12 +48,16 @@ the current app. Courses live at `/course/[slug]`.
 
 ## How it works
 
-1. Someone buys a course on BigCommerce.
-2. BigCommerce calls `/api/webhooks/bigcommerce` once the order is paid.
-3. That endpoint figures out which product was bought, matches it
-   against the `courses` table, creates (or finds) the user in
-   Supabase by email, and grants access by inserting a row into
-   `purchases`.
+1. Someone buys a course on BigCommerce. Nothing happens automatically:
+   there is no order webhook.
+2. Staff open `/admin/waiting` and press **Check now**. It reads the paid
+   orders of the last N days from every store and lists course buyers
+   who have no access yet (`lib/reconcile.ts`).
+3. **Onboard** on a row reads that order back from BigCommerce, matches
+   its products against the `courses` table by SKU, creates (or finds)
+   the user in Supabase by email, grants access by inserting a row into
+   `purchases`, and emails a welcome with a sign-in link
+   (`lib/order-onboarding.ts`).
 4. The student goes to `/login`, enters their email, gets a
    passwordless link, and lands on `/dashboard`, seeing only the
    courses they purchased.
@@ -99,30 +103,22 @@ next section.
 1. Create a project at [supabase.com](https://supabase.com), run
    `supabase/schema.sql` in the SQL editor.
 2. Copy `.env.example` to `.env.local` and fill in the variables.
-3. In BigCommerce: Settings > API > Webhooks > create one pointing to
-   `https://yourdomain.com/api/webhooks/bigcommerce`, scope
-   `store/order/statusUpdated`.
-4. In BigCommerce: Settings > API Accounts > create an API account
-   with read access to Orders and Products. That token goes in
-   `BIGCOMMERCE_ACCESS_TOKEN`.
-5. Check the `PAID_STATUS_IDS` array in
-   `app/api/webhooks/bigcommerce/route.ts` — it needs to match the
-   order statuses your store uses for "payment confirmed."
-6. In YouTube Studio, for each video: Details > Restrictions >
+3. In BigCommerce: Settings > API Accounts > create an API account
+   per store with read access to Orders and Products. The tokens go in
+   `BIGCOMMERCE_STORES` as `{"<store hash>":"<token>"}`.
+4. Check the `PAID_STATUS_IDS` set in `lib/bigcommerce.ts` — it needs
+   to match the order statuses your store uses for "payment confirmed."
+5. In YouTube Studio, for each video: Details > Restrictions >
    restrict the embed to the final site's domain only. This is what
    stops someone from taking the link and reusing it on another page.
    No free option prevents screen recording — this raises the bar, it
    doesn't remove it.
-7. `npm install && npm run dev`
+6. `npm install && npm run dev`
 
 ## What's missing for production (not included in this scaffold)
 
 - Transactional email when a new user account is created (a "set your
   password" link, or just relying on the magic link going forward).
-- BigCommerce webhook signature verification (right now the endpoint
-  trusts the payload; BigCommerce doesn't sign webhooks by default, so
-  at minimum it's worth validating the source IP is BigCommerce's, or
-  adding a shared secret to the webhook URL).
 - Refund/cancellation handling (revoking access if BigCommerce reports
   a refund).
 - Per-lesson "completed" tracking — today it only lives in browser

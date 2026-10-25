@@ -19,7 +19,7 @@ export function asLocale(value: unknown): Locale {
 }
 
 // Which courses are taught in which language, keyed by BigCommerce product
-// id — the same key the webhook and the onboarding endpoint already match
+// id — the same key order onboarding and the onboarding endpoint already match
 // on, so there is no second identifier to keep in step.
 //
 // This belongs in a courses.locale column, and should move there the next

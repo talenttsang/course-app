@@ -27,13 +27,12 @@ export async function createSignInLink(email: string, origin: string) {
 
 // Access on its own isn't onboarding: a student who is never told they have
 // a course, and never given a way in, is no better off than before they
-// paid. Both the webhook and the manual admin path end here so that the two
-// produce an identical experience for the buyer.
+// paid. Every onboarding path ends here so that they all produce an
+// identical experience for the buyer.
 //
 // Never throws. By the time this runs the course is already granted, and a
-// mail server hiccup must not undo that or fail the caller — the webhook
-// would be retried by BigCommerce, and an admin would be left staring at an
-// error for something that actually worked.
+// mail server hiccup must not undo that or fail the caller — an admin
+// would be left staring at an error for something that actually worked.
 export async function sendCourseWelcome(opts: {
   to: string;
   courseTitles: string[];

@@ -1,12 +1,11 @@
 // We sell the same courses from several BigCommerce storefronts — .com, .ca,
 // .es, with more to come — and each one is a separate store with its own API
-// token. The webhook has to work out which store an order belongs to before
-// it can fetch anything, because a token for one store returns 404 for every
-// order in another.
+// token. Every order is read with the token for the store it belongs to,
+// because a token for one store returns 404 for every order in another.
 
 // BIGCOMMERCE_STORES is a JSON object of store hash -> access token, e.g.
 //   {"gmosz3ja":"abc…","qet21urb3p":"def…"}
-// set on the Cloud Run service. The single-store BIGCOMMERCE_STORE_HASH /
+// set on the service. The single-store BIGCOMMERCE_STORE_HASH /
 // BIGCOMMERCE_ACCESS_TOKEN pair is still honoured so nothing breaks while
 // both are configured.
 export function storeTokens(): Record<string, string> {
@@ -28,15 +27,6 @@ export function storeTokens(): Record<string, string> {
   }
 
   return tokens;
-}
-
-// BigCommerce stamps every webhook with the store it came from, as
-// "stores/<hash>". That is the only reliable way to tell them apart: order
-// ids are per-store and collide across them.
-export function storeHashFromProducer(producer: unknown): string | null {
-  if (typeof producer !== "string") return null;
-  const match = producer.match(/^stores\/([A-Za-z0-9]+)$/);
-  return match ? match[1] : null;
 }
 
 export function tokenForStore(hash: string): string | null {
@@ -157,45 +147,11 @@ export function unmappedCourseCandidates(lines: OrderLine[], storeHash?: string)
   });
 }
 
-// What this line is, for throttling. Two different products must never
-// share a window: that is how a wig sale every ten minutes keeps a renamed
-// course permanently silent.
-export function candidateKey(storeHash: string, line: OrderLine) {
-  const sku = line.sku?.trim().toLowerCase();
-  return `${storeHash}:${sku || `id-${line.product_id ?? "unknown"}`}`;
-}
-
 export function courseProductIds(lines: OrderLine[], storeHash?: string): number[] {
   const ids = lines
     .map((line) => courseProductIdFor(line, storeHash))
     .filter((id): id is number => id !== null);
   return Array.from(new Set(ids));
-}
-
-// Shared secret sent as a header on every webhook we register, and checked
-// on the way in. Without it the endpoint is an unauthenticated URL that acts
-// on any order id it is handed — not catastrophic, since it can only grant a
-// real buyer access to what they actually paid for, but it lets anyone
-// outside trigger our mail sending and enumerate which orders contain
-// courses. Unset, the check is skipped so an existing deployment keeps
-// working until the secret is configured.
-// The route itself goes through requireSharedSecret, which also alerts and
-// answers 503 when the secret is missing. This stays for anything else that
-// needs the plain answer, and agrees with it: an unset secret authorises
-// nobody in production.
-export function webhookSecretOk(headerValue: string | null): boolean {
-  const expected = process.env.BIGCOMMERCE_WEBHOOK_SECRET;
-  if (!expected) return process.env.NODE_ENV !== "production";
-  if (!headerValue) return false;
-
-  // Constant-time-ish compare: bail on length first, then diff every byte so
-  // the time taken doesn't reveal how much of the prefix was right.
-  if (headerValue.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) {
-    diff |= headerValue.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
-  return diff === 0;
 }
 
 // BigCommerce order statuses that mean the customer has paid.

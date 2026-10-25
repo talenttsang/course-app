@@ -36,11 +36,14 @@ export default async function AdminHome() {
         <p className="page-eyebrow">Evolve Academy</p>
         <h1 className="page-title">Courses</h1>
         <p className="page-sub">
-          Add a course here and link it to its BigCommerce product. Buyers get access
-          automatically — no deploy needed.
+          Add a course here and link it to its BigCommerce product. Buyers are onboarded
+          from the Waiting page.
         </p>
 
         <p style={{ margin: "-24px 0 32px" }}>
+          <Link href="/admin/waiting" className="btn-ghost admin-sm">
+            Waiting buyers →
+          </Link>{" "}
           <Link href="/admin/students" className="btn-ghost admin-sm">
             Manage students →
           </Link>

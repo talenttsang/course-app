@@ -1,7 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { assertWritePathBaseUrl } from "../support/prod-guard";
-import { webhookSecretForUnknownStore } from "../support/webhook-secret";
 
 const STUDENT = { email: "student@example.test", password: "Student-pass-123" };
 const OUTSIDER = { email: "outsider@example.test", password: "Outsider-pass-123" };
@@ -322,6 +321,18 @@ test.describe("local admin", () => {
     expect(lessonBlocked).toBe(false);
   });
 
+  test("staff reach the Waiting page and see what stops onboarding", async ({ page }) => {
+    await login(page, STAFF.email, STAFF.password);
+    await page.goto("/admin");
+    await page.getByRole("link", { name: "Waiting buyers →" }).click();
+    await expect(page.getByRole("heading", { name: "Waiting" })).toBeVisible();
+    // The stand-in holds no store tokens and no SMTP, and the page must say so.
+    await expect(page.getByText(/No BigCommerce store tokens are set/)).toBeVisible();
+    await expect(page.getByText(/SMTP is not configured/)).toBeVisible();
+    await page.getByRole("button", { name: "Check now" }).click();
+    await expect(page.getByText(/Every course buyer in the last 10 days has their course/)).toBeVisible();
+  });
+
   test("staff can grant and revoke a course, and cannot use a bad email", async ({ page }) => {
     page.on("dialog", (dialog) => dialog.accept());
     await login(page, STAFF.email, STAFF.password);
@@ -349,10 +360,10 @@ test.describe("local admin", () => {
 });
 
 test.describe("local APIs", () => {
-  test("webhook, cron, and onboard reject unauthenticated callers", async ({ request }) => {
-    expect((await request.post("/api/webhooks/bigcommerce", { data: { data: { id: 1 } } })).status()).toBe(401);
-    expect((await request.get("/api/cron/reconcile")).status()).toBe(401);
-    expect((await request.get("/api/cron/webhook-watchdog")).status()).toBe(401);
+  test("removed webhook and cron routes are gone, and onboard rejects unauthenticated callers", async ({ request }) => {
+    expect((await request.post("/api/webhooks/bigcommerce", { data: { data: { id: 1 } } })).status()).toBe(404);
+    expect((await request.get("/api/cron/reconcile")).status()).toBe(404);
+    expect((await request.get("/api/cron/webhook-watchdog")).status()).toBe(404);
     const onboard = await request.post("/api/admin/onboard", {
       data: {},
       headers: { origin: "https://evil.example" },
@@ -360,24 +371,6 @@ test.describe("local APIs", () => {
     expect(onboard.status()).toBe(401);
     const allow = onboard.headers()["access-control-allow-origin"];
     expect(allow === "*" || allow === "https://evil.example").toBe(false);
-
-    const secret = webhookSecretForUnknownStore({
-      E2E_WEBHOOK_SECRET: process.env.E2E_WEBHOOK_SECRET,
-      E2E_BASE_URL: process.env.E2E_BASE_URL,
-    });
-    if (!secret) {
-      test.info().annotations.push({
-        type: "note",
-        description:
-          "Skipped the unknown-store webhook check. Set E2E_WEBHOOK_SECRET to this instance's webhook secret to expect 400.",
-      });
-      return;
-    }
-    const unknownStore = await request.post("/api/webhooks/bigcommerce", {
-      headers: { "x-evolve-webhook-secret": secret },
-      data: { producer: "stores/doesnotexist", data: { id: 42 } },
-    });
-    expect(unknownStore.status()).toBe(400);
   });
 
   test("onboard allows a staff token and refuses a student token", async ({ request }) => {

@@ -25,8 +25,8 @@ them an account and the lessons.
 | Hosting | Cloud Run, project `shp-ai-bot-2026`, region `us-central1` |
 | Database and login | Supabase project `ngilonjnqqncxknqvwff` (shp-courses) |
 | Outgoing email | Gmail SMTP as sales@superhairpieces.com |
-| Team notifications | a Google Chat space |
-| Scheduled jobs | Cloud Scheduler — webhook watchdog, weekly reconciliation |
+| Team notifications | none — the admin Waiting page (`/admin/waiting`) |
+| Scheduled jobs | none |
 
 ### Courses
 
@@ -50,21 +50,25 @@ Starter is the monofilament lessons. Extended adds poly skin and lace.
 
 ## 2. How a student gets access
 
-1. Someone buys a course on a BigCommerce storefront.
-2. BigCommerce calls `POST /api/webhooks/bigcommerce`.
-3. The webhook checks a shared secret header, works out which store the order
-   came from, fetches the order with that store's token, and checks it is paid.
+1. Someone buys a course on a BigCommerce storefront. **Nothing happens
+   automatically**: there is no order webhook, no scheduled job, no chat.
+2. Staff open `/admin/waiting` and press **Check now**. It reads N days of
+   paid orders across every store and lists course buyers with no access.
+3. **Onboard** on a row fetches that order with its store's token and checks
+   it is paid.
 4. It matches line items to courses **by SKU, ignoring capitalisation**.
 5. It creates the account if needed, records the buyer's name, grants the course.
 6. It emails a welcome with a one-click sign-in link valid 24 hours, in the
    language the course is taught in, and records whether that mail left.
-7. It posts to Google Chat.
 
-Steps 5–7 are idempotent. BigCommerce fires the same event repeatedly.
+Steps 5–6 are idempotent, so pressing Onboard twice sends one welcome. The
+same page lists setup problems (missing tokens, SMTP, `PUBLIC_ORIGIN`) and
+students whose welcome email failed. Someone has to check it daily: until
+they do, a buyer who has paid has no access.
 
 ### Storefronts
 
-| Store hash | Storefront | Currency | Webhook | Token |
+| Store hash | Storefront | Currency | Old webhook (delete) | Token |
 |---|---|---|---|---|
 | `gmosz3ja` | superhairpieces.ca | CAD | 31662661, active | yes |
 | `qet21urb3p` | superhairpieces.es | EUR | 31759427, active | yes |
@@ -76,10 +80,9 @@ Steps 5–7 are idempotent. BigCommerce fires the same event repeatedly.
 **`.nl` and `.fr` sell courses and onboard nobody.** `.nl` lists three
 (`academyStarter` 885, `academyExtended` 886, `academyExtended_in_person`
 1114) and `.fr` one (`academyExtended` 2193). Their tokens are catalogue-read
-only — orders return 403 — so neither the webhook nor a reconciliation can
-see them. This is the same position `.com` was in when a paying buyer sat
+only — orders return 403 — so the Waiting page cannot see them. This is the same position `.com` was in when a paying buyer sat
 unonboarded for weeks. **Highest-value open task:** get tokens with
-order-read and webhook scopes for both.
+order-read scope for both.
 
 ### Why matching is by SKU
 
@@ -115,18 +118,11 @@ but if that status means "paid and being made", it should be added.
 
 ## 3. What runs on a schedule
 
-Both authenticate with a `CRON_SECRET` header.
-
-**`evolve-webhook-watchdog`, every 15 minutes.** Repairs a webhook that is
-switched off, missing, or has lost its secret header. BigCommerce disables a
-webhook by itself after 48 hours of failed deliveries and tells nobody; that
-is how a live order was missed. It repairs towards `WEBHOOK_ORIGIN` /
-`PUBLIC_ORIGIN`, never the caller's hostname. Transient failures (429, 5xx)
-are retried three times before alerting; a rejected token alerts immediately.
-
-**`evolve-weekly-reconcile`, Mondays 12:00 America/Toronto.** Reads 10 days of
-orders across every store and reports anyone who paid and has no access. It
-**reports only**. It posts even when clean, so silence means the job died.
+Nothing. The webhook watchdog and weekly reconciliation were removed along
+with the order webhook and Google Chat. The reconciliation now runs on demand
+from `/admin/waiting`. Delete the `evolve-webhook-watchdog` and
+`evolve-weekly-reconcile` Cloud Scheduler jobs, and the order webhooks on
+each store listed above.
 
 ---
 
@@ -178,18 +174,16 @@ with an admin's own Supabase token.
 | SUPABASE_SERVICE_ROLE_KEY | full database access; server-side only |
 | BIGCOMMERCE_STORES | JSON of store hash → API token |
 | BIGCOMMERCE_STORE_HASH / _ACCESS_TOKEN | the original single store; superseded |
-| BIGCOMMERCE_WEBHOOK_SECRET | shared secret each webhook sends |
-| CRON_SECRET | shared secret the scheduled jobs send |
 | PUBLIC_ORIGIN | what we tell customers; pins links in emails |
-| WEBHOOK_ORIGIN | where BigCommerce should deliver (unset = PUBLIC_ORIGIN) |
 | ADMIN_EMAILS | permanent owner logins |
 | SMTP_* | Gmail SMTP for student email |
-| GOOGLE_CHAT_WEBHOOK | the team chat space; itself a credential |
 
 Credentials also live in Secret Manager under
 `BIGCOMMERCE_<store_hash>_<FIELD>` for all six storefronts.
 
 ### Deployment
+
+For Render, see `docs/RENDER.md`.
 
 Pushing to `main` deploys to production in about three minutes. Cloud Build
 trigger **CICD** (in the *global* region) builds `cloudbuild.yaml`.
@@ -227,8 +221,8 @@ list when there is nothing to list).
   full URLs and `/\evil.example` are rejected in login and both auth callbacks.
 - Password reset links are built from `PUBLIC_ORIGIN`, never a request header.
 - Supabase requires re-authentication to change a password.
-- Webhook and cron endpoints require their shared secrets; all return 401
-  without them.
+- There are no webhook or cron endpoints. Onboarding is a staff-only server
+  action, and it reads the order from BigCommerce rather than trusting the page.
 
 ---
 
@@ -248,8 +242,8 @@ list when there is nothing to list).
   recorded, so the real address cannot be recovered from the system.
 - **A migration to GCP project `shp-evolve` is built and tested** but not cut
   over. It waits on a GitHub connection in that project's Cloud Build console.
-- **Credentials to rotate**: the Gmail app password, the Google Chat webhook,
-  and `CRON_SECRET` on `shp-ai-bot-2026`.
+- **Credentials to rotate**: the Gmail app password. Delete the now-unused
+  Google Chat webhook, `CRON_SECRET` and `BIGCOMMERCE_WEBHOOK_SECRET`.
 - **Next.js 14.2.5** carries published advisories.
 
 ## 9. Things that look like bugs but are not
@@ -258,5 +252,5 @@ list when there is nothing to list).
 - **An order "Awaiting Payment" produces nothing.** Correct.
 - **An admin cannot see a course they were not granted.** Admin and student
   access are separate — though staff are now granted everything on invite.
-- **A student appears twice in Chat.** BigCommerce fires on each status
-  change; only the first grants anything.
+- **A buyer stays on the Waiting page after Onboard.** Only until the page is
+  checked again: the list is a snapshot from when Check now was pressed.

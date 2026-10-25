@@ -69,8 +69,8 @@ export default async function Dashboard() {
             <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--ink)" }}>
               No courses on this account yet
             </p>
-            Just purchased one? Access is granted automatically and usually appears
-            within a few minutes. Make sure you signed in with the same email you used
+            Just purchased one? Our team sets up your access after checkout and emails
+            you when it is ready. Make sure you signed in with the same email you used
             at checkout — or contact{" "}
             <a href="mailto:support@superhairpieces.com" className="link">
               support@superhairpieces.com

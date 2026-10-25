@@ -255,8 +255,8 @@ export function StudentDetail({
       <div className="admin-card">
         <p style={{ fontSize: 14, color: "var(--muted)", margin: "0 0 16px", lineHeight: 1.6 }}>
           Removes the account, its course access and its progress. Their BigCommerce
-          order is untouched — if that order is still marked paid, a future webhook
-          from BigCommerce would recreate the account and re-grant access.
+          order is untouched — if that order is still marked paid, it will show up
+          again on the Waiting page, and onboarding it there recreates the account.
         </p>
         <button
           className="btn-ghost admin-danger"

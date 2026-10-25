@@ -11,8 +11,6 @@ const { isStandinControlledKey } = require("./lock-local-env.cjs");
 
 export const lockScriptPath = fileURLToPath(new URL("./lock-local-env.cjs", import.meta.url));
 
-const TEST_WEBHOOK_SECRET = "test-webhook-secret";
-const TEST_CRON_SECRET = "test-cron-secret";
 const TEST_SERVICE_ROLE = "test-service-role";
 const TEST_ANON_KEY = "test-anon-key";
 
@@ -31,8 +29,6 @@ export function buildLocalEnv(parent, { port, appPort }) {
   env.NEXT_PUBLIC_SUPABASE_ANON_KEY = TEST_ANON_KEY;
   env.SUPABASE_SERVICE_ROLE_KEY = TEST_SERVICE_ROLE;
   env.ADMIN_EMAILS = "staff@example.test";
-  env.BIGCOMMERCE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
-  env.CRON_SECRET = TEST_CRON_SECRET;
   env.PUBLIC_ORIGIN = `http://127.0.0.1:${appPort}`;
   env.EVOLVE_LOCK_LOCAL_ENV = "1";
   env.SMTP_HOST = "";

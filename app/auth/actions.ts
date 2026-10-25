@@ -4,7 +4,6 @@ import { headers } from "next/headers";
 import { emailOrigin, MissingPublicOrigin } from "@/lib/origin";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { sendPasswordResetEmail, smtpConfigured } from "@/lib/email";
-import { notifyConfigProblem } from "@/lib/notify";
 import { describeError, describeErrorForLog } from "@/lib/redact";
 import { localeForCourses, DEFAULT_LOCALE } from "@/lib/i18n";
 
@@ -35,10 +34,10 @@ async function originFromHeaders() {
 const UNDELIVERABLE =
   "We could not send that email just now. This is a problem on our side, not with your account — please try again in a few minutes.";
 
-// One alert per failure *kind* per window. The form can be resubmitted as
-// fast as anyone can click, and during an outage that put a message in the
-// team's chat for every attempt. Best effort only: this counts per
-// container, so several Cloud Run instances can still raise one each.
+// One log line per failure *kind* per window. The form can be resubmitted as
+// fast as anyone can click, and during an outage that would bury the logs in
+// one line per attempt. Best effort only: this counts per container, so
+// several instances can still log one each.
 const ALERT_WINDOW_MS = 15 * 60 * 1000;
 const lastAlertAt = new Map<string, number>();
 
@@ -53,7 +52,7 @@ async function alertOnce(what: string, kind: string, detail: string, note?: stri
   const now = Date.now();
   if (now - (lastAlertAt.get(key) ?? 0) < ALERT_WINDOW_MS) return;
   lastAlertAt.set(key, now);
-  await notifyConfigProblem({ what, detail, note });
+  console.error(`[auth] ${what}: ${detail}. ${note ?? "Nothing was sent until the setting is restored."}`);
 }
 
 // The closing line for a failure that is not a missing setting. The default
@@ -71,7 +70,7 @@ function failureKind(err: unknown) {
   return typeof code === "string" && code ? code : "unknown";
 }
 
-// Everything that must never reach a chat space or a log line.
+// Everything that must never reach a log line.
 //
 // The service role key is in here because the auth client can quote it back
 // in an error ("Invalid API key: ..."), and the redaction's fallback for a
@@ -82,8 +81,6 @@ function mailSecrets() {
     process.env.SMTP_USER,
     process.env.SMTP_PASS,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
-    // Carries its own key and token, so it is a credential like any other.
-    process.env.GOOGLE_CHAT_WEBHOOK,
   ];
 }
 

@@ -11,7 +11,6 @@ import {
   assertWritePathBaseUrl,
   isProductionBaseUrl,
 } from "../support/prod-guard";
-import { webhookSecretForUnknownStore } from "../support/webhook-secret";
 
 describe("production host guard", () => {
   it("recognises the production host and not a lookalike", () => {
@@ -46,23 +45,6 @@ describe("production host guard", () => {
   });
 });
 
-describe("webhook secret for the unknown-store check", () => {
-  it("uses the stand-in secret locally and skips it on an external instance", () => {
-    expect(webhookSecretForUnknownStore({})).toBe("test-webhook-secret");
-    expect(webhookSecretForUnknownStore({ E2E_BASE_URL: "" })).toBe("test-webhook-secret");
-    expect(webhookSecretForUnknownStore({ E2E_BASE_URL: "http://127.0.0.1:8080" })).toBeUndefined();
-    expect(
-      webhookSecretForUnknownStore({
-        E2E_BASE_URL: "http://127.0.0.1:8080",
-        E2E_WEBHOOK_SECRET: " staging-secret ",
-      })
-    ).toBe("staging-secret");
-    expect(
-      webhookSecretForUnknownStore({ E2E_WEBHOOK_SECRET: "   ", E2E_BASE_URL: "http://127.0.0.1:8080" })
-    ).toBeUndefined();
-  });
-});
-
 describe("local stand-in environment", () => {
   it("blanks mail, chat, and store credentials that arrived in the parent environment", () => {
     const env = buildLocalEnv(
@@ -77,8 +59,6 @@ describe("local stand-in environment", () => {
         BIGCOMMERCE_STORES: JSON.stringify({ gmosz3ja: "real-token" }),
         BIGCOMMERCE_STORE_HASH: "gmosz3ja",
         BIGCOMMERCE_ACCESS_TOKEN: "real-token",
-        BIGCOMMERCE_WEBHOOK_SECRET: "real-webhook-secret",
-        CRON_SECRET: "real-cron-secret",
         NEXT_PUBLIC_SUPABASE_URL: "https://exampleproject.supabase.co",
         NEXT_PUBLIC_SUPABASE_ANON_KEY: "real-anon",
         SUPABASE_SERVICE_ROLE_KEY: "real-service-role",
@@ -94,8 +74,6 @@ describe("local stand-in environment", () => {
     expect(env.BIGCOMMERCE_STORES).toBe("");
     expect(env.BIGCOMMERCE_STORE_HASH).toBe("");
     expect(env.BIGCOMMERCE_ACCESS_TOKEN).toBe("");
-    expect(env.BIGCOMMERCE_WEBHOOK_SECRET).toBe("test-webhook-secret");
-    expect(env.CRON_SECRET).toBe("test-cron-secret");
     expect(env.NEXT_PUBLIC_SUPABASE_URL).toBe("http://127.0.0.1:54321");
     expect(env.SUPABASE_SERVICE_ROLE_KEY).toBe("test-service-role");
     expect(env.PUBLIC_ORIGIN).toBe("http://127.0.0.1:3000");

@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
 
 const TOTAL = 1002;
 const HAS_ACCESS_INDEX = 1000;
@@ -52,12 +51,7 @@ vi.mock("@/lib/supabase-server", () => ({
   publicOrigin: () => "http://127.0.0.1:3000",
 }));
 
-vi.mock("@/lib/notify", () => ({
-  notifyReconciliation: async () => {},
-  notifyWatchdogFailed: async () => {},
-}));
-
-import { GET as reconcile } from "@/app/api/cron/reconcile/route";
+import { reconcile } from "@/lib/reconcile";
 
 const ORIGINAL = { ...process.env };
 
@@ -73,11 +67,9 @@ beforeEach(() => {
   process.env = { ...ORIGINAL };
   delete process.env.BIGCOMMERCE_STORE_HASH;
   delete process.env.BIGCOMMERCE_ACCESS_TOKEN;
-  delete process.env.GOOGLE_CHAT_WEBHOOK;
   delete process.env.SMTP_HOST;
   delete process.env.SMTP_PASS;
   process.env.BIGCOMMERCE_STORES = JSON.stringify({ teststore: "test-token" });
-  process.env.CRON_SECRET = "expected-cron";
   vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
     const url = String(input);
     if (!url.startsWith("https://api.bigcommerce.com/")) {
@@ -112,13 +104,7 @@ afterEach(() => {
 });
 
 async function runReconcile() {
-  const res = await reconcile(
-    new NextRequest("https://evolve.example/api/cron/reconcile", {
-      headers: { "x-evolve-cron-secret": "expected-cron" },
-    })
-  );
-  expect(res.status).toBe(200);
-  return (await res.json()) as { missing: { email: string }[] };
+  return reconcile();
 }
 
 describe("reconciliation pagination", () => {
@@ -127,12 +113,10 @@ describe("reconciliation pagination", () => {
     expect(body.missing.map((row) => row.email)).toContain("no-access@example.test");
   });
 
-  // KNOWN BUG: listUsers is called once for page 1. The buyer on the next
-  // page already owns the course, but they are reported missing because
-  // their account was never loaded. Any loop or larger page that reaches
-  // them clears the false missing row; dropping unknown emails would hide
-  // the buyer who really has no access, and that assertion still fails.
-  it.fails("BUG-RECONCILE: reconciliation pages through every auth user", async () => {
+  // The buyer on the second page already owns the course. Reading only page
+  // one used to report them as missing; dropping unknown emails instead
+  // would hide the buyer who really has no access.
+  it("pages through every auth user", async () => {
     const body = await runReconcile();
     const emails = body.missing.map((row) => row.email);
     expect(emails).not.toContain("has-access@example.test");

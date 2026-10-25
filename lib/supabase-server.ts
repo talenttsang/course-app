@@ -48,8 +48,8 @@ export async function supabaseRouteClient() {
 // address (0.0.0.0:8080). Redirects have to be built from the forwarded host.
 export { publicOrigin } from "./origin";
 
-// Admin client, bypasses RLS. ONLY used in the BigCommerce webhook
-// (server-to-server; never reaches the browser).
+// Admin client, bypasses RLS. Server-side only (admin actions and API
+// routes); never reaches the browser.
 export function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

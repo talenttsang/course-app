@@ -87,7 +87,7 @@ export function StudentsTable({
       {shown.length === 0 ? (
         <div className="empty-state" style={{ padding: "32px 24px", marginBottom: 44 }}>
           {students.length === 0
-            ? "No students yet. They appear here automatically when someone buys a course."
+            ? "No students yet. They appear here once a buyer is onboarded from the Waiting page."
             : "No student matches that search."}
         </div>
       ) : (

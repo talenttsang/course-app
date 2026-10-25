@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { localeForCourses, localeForProduct } from "@/lib/i18n";
-import { originFrom, publicOrigin, webhookOrigin } from "@/lib/origin";
+import { originFrom, publicOrigin } from "@/lib/origin";
 import { isOwnerEmail, ownerEmails } from "@/lib/admin";
 import { fullNameFromBilling } from "@/lib/students";
 import { safeNextPath } from "@/lib/safe-next";
@@ -44,12 +44,6 @@ describe("public origin", () => {
         get: (name) => (name === "host" ? "localhost:3000" : name === "x-forwarded-proto" ? "http" : null),
       })
     ).toBe("http://localhost:3000");
-  });
-
-  it("pins the webhook destination to WEBHOOK_ORIGIN", () => {
-    process.env.WEBHOOK_ORIGIN = "https://evolve.superhairpieces.com/";
-    process.env.PUBLIC_ORIGIN = "https://other.example";
-    expect(webhookOrigin({ get: () => "spoofed.example" })).toBe("https://evolve.superhairpieces.com");
   });
 });
 

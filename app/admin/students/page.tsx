@@ -28,8 +28,9 @@ export default async function StudentsPage() {
         <p className="page-eyebrow" style={{ marginTop: 18 }}>Evolve Academy</p>
         <h1 className="page-title">Students</h1>
         <p className="page-sub">
-          Everyone with an account. Access is granted automatically on purchase — use
-          this when you need to correct it by hand.
+          Everyone with an account. Store buyers are onboarded from the{" "}
+          <Link href="/admin/waiting" className="link">Waiting</Link> page — use this for
+          anyone else, or to correct access by hand.
         </p>
 
         <StudentsTable students={students} courses={courses ?? []} />
